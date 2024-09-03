@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+'''Plot RV Tangaroa rain gauge data.
+
+Usage: plot_tan_aws INPUT PLOT OUTPUT
+
+Arguments:
+
+  INPUT   Input file - the output of tan_aws (NetCDF).
+  PLOT    Output plot (PDF).
+  OUTPUT  Output file (PDF).
+'''
+
+import sys
+import numpy as np
+import scipy as sp
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
+import ds_format as ds
+import aquarius_time as aq
+
+mpl.rc('font', family='Open Sans')
+mpl.rc('axes', linewidth=0.3)
+#mpl.rc('axes', grid=True)
+mpl.rc('lines', linewidth=1.2)
+mpl.rc('xtick.major', width=0.3)
+mpl.rc('ytick.major', width=0.3)
+mpl.rc('legend', framealpha=1)
+mpl.rc('legend', facecolor='#eeeeee')
+mpl.rc('legend', edgecolor='none')
+mpl.rc('legend', fancybox=False)
+mpl.rc('legend', fontsize=9)
+mpl.rc('grid', color='k')
+mpl.rc('grid', alpha=0.2)
+mpl.rc('grid', lw=0.1)
+
+
+
+NBINS = 60
+
+PRECIP_PERIODS = 2458155.5 + np.array([
+	[ 4.999956,  6.916444],
+	[11.075166, 11.320897],
+	[11.761546, 14.059569],
+	[14.996658, 15.150970],
+	[15.653475, 16.324340],
+	[17.561032, 17.738160],
+	[19.939812, 20.250482],
+	[23.877652, 24.082348],
+	[25.724794, 25.943488],
+])
+
+MISSING_PERIODS = 2458155.5 + np.array([
+	[26.48389, 33.29228],
+	[35.12189, 36.90098],
+])
+
+def fill(t1, t2, color='k', alpha=0.1):
+	plt.fill_betweenx([-30, 50],
+		aq.to_datetime([t1, t1]), aq.to_datetime([t2, t2]),
+		color=color, alpha=alpha, edgecolor='none')
+
+if __name__ == '__main__':
+	if len(sys.argv) != 4:
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+
+	input_ = sys.argv[1]
+	plot = sys.argv[2]
+	output = sys.argv[3]
+
+	d = ds.read(input_)
+	x = d['x']
+	time = d['time']
+	x[x == -999.] = np.nan
+	x[x == 0] = np.nan
+	x[x > 49] = np.nan
+	xd = np.diff(x)
+	mask = (xd > 10) | (xd < -10)
+	x = x[1:]
+	time = time[1:]
+	x[mask] = np.nan
+	n = len(x)
+	m = int(np.ceil(n/NBINS))
+	y = np.ma.zeros(m*NBINS)*np.nan
+	t = np.ma.zeros(m*NBINS)*np.nan
+	y[:n] = x
+	t[:n] = time
+	z = y.reshape(m, NBINS)
+	tz = t.reshape(m, NBINS)
+	u = np.nanmedian(z, axis=1)
+	tu = np.nanmedian(tz, axis=1)
+	ud = np.diff(u)
+	mask = (ud > 10) | (ud < -10)
+	u = u[1:]
+	tu = tu[1:]
+	u[mask] = np.nan
+	#us = sp.ndimage.gaussian_filter(u, 20)
+
+	plt.figure(figsize=(12,5))
+	plt.plot(aq.to_datetime(tu), u, lw=0.5, color='k')
+	plt.plot(aq.to_datetime(tu), ud*10, lw=0.5, color='blue')
+	plt.axhline(0, lw=0.1, color='k')
+
+	for period in PRECIP_PERIODS:
+		fill(*period, 'blue', 0.1)
+
+	for period in MISSING_PERIODS:
+		fill(*period, 'red', 0.1)
+
+	plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=1))
+	plt.gca().tick_params(axis='x', labelrotation=90)
+
+	plt.ylim(-30, 50)
+	plt.title('TAN1802 Young rain gauge')
+	plt.xlabel('Time (UTC)')
+	plt.ylabel('Rain gauge (mm)')
+
+	red_patch = mpatches.Patch(color='red', label='The red data')
+
+	plt.legend(
+		handles=[
+			mlines.Line2D([], [], lw=0.5, color='k'),
+			mlines.Line2D([], [], lw=0.5, color='blue'),
+			mpatches.Patch(color='blue', lw=0, alpha=0.1),
+			mpatches.Patch(color='red', lw=0, alpha=0.1),
+		],
+		labels=[
+			'Gauge',
+			'Gauge time derivative',
+			'Precipitation',
+			'Missing'
+		],
+		loc='lower left',
+	)
+	plt.savefig(plot, bbox_inches='tight')
+
+	ds.write(output, {
+		'precip': PRECIP_PERIODS,
+		'missing': MISSING_PERIODS,
+		'avail': aq.from_iso(np.array([['2018-02-07', '2018-03-13']])),
+		'.': {
+			'precip': {
+				'.dims': ['i', 'bnds'],
+				'long_name': 'precipitation time periods',
+				'units': ds.drivers.netcdf.JD_UNITS,
+				'calendar': ds.drivers.netcdf.JD_CALENDAR,
+			},
+			'missing': {
+				'.dims': ['j', 'bnds'],
+				'long_name': 'missing time periods',
+				'units': ds.drivers.netcdf.JD_UNITS,
+				'calendar': ds.drivers.netcdf.JD_CALENDAR,
+			},
+			'avail': {
+				'.dims': ['k', 'bnds'],
+				'long_name': 'available time periods',
+				'units': ds.drivers.netcdf.JD_UNITS,
+				'calendar': ds.drivers.netcdf.JD_CALENDAR,
+			}
+		}
+	})

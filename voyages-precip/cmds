@@ -1,0 +1,3 @@
+parallel 'bin/precip_lidar_ann $(cat ../lidar-cloud-types/data/polarstern/thresholds | grep {} | cut -d " " -f 2) ../lidar-cloud-types/data/polarstern/results/{}_wo_train.nc data/polarstern/{}/precip/lidar_ann_wo_train.nc' :::: ../lidar-cloud-types/input/polarstern/voyages
+parallel 'bin/plot_sources Human data/polarstern/{}/precip/weather.nc "Lidar ANN" data/polarstern/{}/precip/lidar_ann.nc "Lidar ANN (w/o)" data/polarstern/{}/precip/lidar_ann_wo_train.nc plot/polarstern/{}/sources.pdf {}' :::: ../lidar-cloud-types/input/polarstern/voyages
+pdftk plot/polarstern/*/sources.pdf cat output plot/polarstern/sources.pdf

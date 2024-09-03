@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+'''Calculate precipitation flag from AWS on RV Tangaora voyages.
+
+Usage: tan_aws INPUT OUTPUT
+
+Arguments:
+
+  INPUT   Input directory with DAS data (NetCDF).
+  OUTPUT  Output file (NetCDF).
+'''
+
+import sys
+import os
+import ds_format as ds
+import numpy as np
+
+if __name__ == '__main__':
+	if len(sys.argv) != 3:
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+	input_ = sys.argv[1]
+	output = sys.argv[2]
+
+	dd = []
+	for file in sorted(os.listdir(input_)):
+		filename = os.path.join(input_, file)
+		if not filename.endswith('.raingauge.nc'):
+			continue
+		print('<- %s' % filename)
+		d = ds.read(filename, ['time', 'RG_mm'], jd=True)
+		ds.rename(d, 'RG_mm', 'x')
+		dd += [d]
+	d = ds.merge(dd, 'time')
+	print('-> %s' % output)
+	ds.write(output, d)

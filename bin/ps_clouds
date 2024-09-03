@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+'''Extract cloud types from a RV Polarstern weather report.
+
+Usage: ps_clouds INPUT OUTPUT
+
+Arguments:
+
+  INPUT   Input file (CSV).
+  OUTPUT  Output file (NetCDF).
+'''
+
+import sys
+import warnings
+import numpy as np
+import ds_format as ds
+import aquarius_time as aq
+
+def transform(high, mid, low, ww):
+	n = len(high)
+	cloud_types = np.zeros((n, 30), np.byte)
+	cloud_types_n = np.zeros((n, 30), np.byte)
+	for i in range(n):
+		if high[i] > 0: cloud_types[i,high[i]-1] = 1
+		if mid[i] > 0: cloud_types[i,9+mid[i]-1] = 1
+		if low[i] > 0: cloud_types[i,18+low[i]-1] = 1
+		if high[i] >= 0: cloud_types_n[i,:9] = 1
+		if mid[i] >= 0: cloud_types_n[i,9:18] = 1
+		if low[i] >= 0: cloud_types_n[i,18:27] = 1
+		if ww[i] in [11, 12] or (ww[i] >= 41 and ww[i] <= 49):
+			cloud_types[i,27] = 1
+		if ww[i] in [18, 91, 92, 95, 97, 98] or \
+		   (ww[i] >= 50 and ww[i] <= 69) or \
+		   (ww[i] >= 80 and ww[i] <= 84):
+			cloud_types[i,28] = 1
+		if ww[i] in [93, 94, 96, 99] or \
+		   (ww[i] >= 70 and ww[i] <= 79) or \
+		   (ww[i] >= 85 and ww[i] <= 90):
+			cloud_types[i,29] = 1
+		if ww[i] > 0:
+			cloud_types_n[i,27:] = 1
+	return cloud_types, cloud_types_n
+
+if __name__ == '__main__':
+	if len(sys.argv) != 3:
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+	input_ = sys.argv[1]
+	output = sys.argv[2]
+
+	d = ds.read(input_)
+
+	cloud_types, cloud_types_n = transform(
+		d['CH [code]'],
+		d['CM [code]'],
+		d['CL [code]'],
+		d['ww [code]'],
+	)
+
+	time = aq.from_iso(d['Date/Time'])
+
+	mask = np.any(cloud_types_n > 0, axis=1)
+
+	ds.write(output, {
+		'time': time[mask],
+		'cloud_types': cloud_types[mask],
+		'cloud_types_n': cloud_types_n[mask],
+		'.': {
+			'time': {
+				'.dims': ['time'],
+				'long_name': 'time',
+				'units': ds.drivers.netcdf.JD_UNITS,
+				'calendar': ds.drivers.netcdf.JD_CALENDAR,
+			},
+			'cloud_types': {
+				'.dims': ['time', 'cloud_type'],
+				'long_name': 'number of positive cloud type observations',
+			},
+			'cloud_types_n': {
+				'.dims': ['time', 'cloud_type'],
+				'long_name': 'total number of cloud type observations',
+			},
+		}
+	})

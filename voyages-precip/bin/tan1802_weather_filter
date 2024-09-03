@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+'''Create an ALCF filter for precipitation intervals from TAN1802 weather data.
+
+Usage: tan1802_weather_filter TYPE INPUT OUTPUT
+
+Arguments:
+
+  TYPE    One of: rain, snow, fog or dry.
+  INPUT   TAN1802 weather data (CSV).
+  OUTPUT  Output file (NetCDF).
+'''
+
+import sys
+import numpy as np
+import ds_format as ds
+import aquarius_time as aq
+
+if __name__ == '__main__':
+	if len(sys.argv) != 4:
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+	type_ = sys.argv[1]
+	input_ = sys.argv[2]
+	output = sys.argv[3]
+
+	d = ds.read(input_)
+
+	time = aq.from_iso(d['Time (UTC)'])
+	events = d['Events (precipitation, fog, �)']
+	n = ds.dim(d, 'i')
+	time_bnds = []
+
+	positive = {
+		'rain': {'rain', 'drizzle'},
+		'snow': {'snow'},
+		'fog': {'fog'},
+		'dry': set(),
+	}[type_]
+
+	negative = {
+		'rain': set(),
+		'snow': set(),
+		'fog': {'rain', 'drizzle', 'snow'},
+		'dry': {'rain', 'drizzle', 'snow', 'fog'},
+	}[type_]
+
+	minute = 1/(24*60)
+
+	for i in range(n):
+		e = set(events[i].lower().split(','))
+		t = time[i]
+		if positive and not (e & positive):
+			continue
+		if negative and e & negative:
+			continue
+		time_bnds += [[t - 5*minute, t + 5*minute]]
+
+	if len(time_bnds) == 0:
+		time_bnds = [[]]
+
+	ds.write(output, {
+		'time_bnds': np.array(time_bnds),
+		'.': {
+			'time_bnds': {
+				'.dims': ['i', 'bnds'],
+				'long_name': '%s time periods' % type_,
+				'units': ds.drivers.netcdf.JD_UNITS,
+				'calendar': ds.drivers.netcdf.JD_CALENDAR,
+			},
+		}
+	})

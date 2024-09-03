@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+'''Convert RV Polarstern weather observations to a standard format.
+
+Usage: ps_weather_obs INPUT OUTPUT
+
+Arguments:
+
+  INPUT   Input file (TSV).
+  OUTPUT  Output file (NetCDF).
+'''
+
+import sys
+
+if __name__ == '__main__':
+	if len(sys.argv) != 3:
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+	input_ = sys.argv[1]
+	output = sys.argv[2]
+	d = ds.read(input_, jd=True)
+
+	time = d['Date/Time']
+	weather = d['ww [code]']
+
+	ds.write(output, {
+		'time': time,
+		'weather': weather,
+		'.': {
+			'time': {
+				'.dims': ['time'],
+				'long_name': 'time',
+				'units': ds.drivers.netcdf.JD_UNITS,
+				'calendar': ds.drivers.netcdf.JD_CALENDAR,
+			},
+			'weather': {
+				'.dims': ['time'],
+				'comment': '0: clear, 1: rain, 2: snow, 3: fog',
+			}
+		},
+	})

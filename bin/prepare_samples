@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+'''Prepare samples of clouds for ANN training.
+
+Usage: prepare_samples INPUT WEATHER OUTPUT
+
+Arguments:
+
+  INPUT    Input directory - the output of alcf lidar (NetCDF).
+  WEATHER  Weather reports (NetCDF).
+  OUTPUT   Output directory (NetCDF).
+'''
+
+import sys
+import os
+import numpy as np
+import ds_format as ds
+import aquarius_time as aq
+
+def lookup(d, t1, t2):
+	t = (t1 + t2)/2
+	cloud_types = np.zeros(30, np.byte)
+	cloud_types_n = np.ones(30, np.byte)
+	i = np.argmin(np.abs(d['time'] - t))
+	if (d['time'][i] < t1 - 0.5/24) or (d['time'][i] > t2 + 0.5/24):
+		return cloud_types, np.zeros(30, np.byte)
+	i = np.argmin(np.abs(d['time'] - t))
+	return d['cloud_types'][i], d['cloud_types_n'][i]
+
+if __name__ == '__main__':
+	if len(sys.argv) != 4:
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+	input_ = sys.argv[1]
+	weather = sys.argv[2]
+	output = sys.argv[3]
+
+	d_weather = ds.read(weather)
+
+	for file_ in sorted(os.listdir(input_)):
+		filename = os.path.join(input_, file_)
+		d = ds.read(filename)
+		t1 = d['time'][0]
+		t2 = d['time'][-1]
+		d['cloud_types'], d['cloud_types_n'] = lookup(d_weather, t1, t2)
+		d['.']['cloud_types'] = {
+			'.dims': ['cloud_type'],
+		}
+		d['.']['cloud_types_n'] = {
+			'.dims': ['cloud_type'],
+		}
+		output_filename = os.path.join(output, file_)
+		if np.any(d['cloud_types'] > 0):
+			ds.write(output_filename, d)

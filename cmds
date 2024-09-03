@@ -1,0 +1,7 @@
+parallel mkdir data/polarstern/samples/train_wo_{} :::: input/polarstern/voyages
+parallel mkdir data/polarstern/samples/val_wo_{} :::: input/polarstern/voyages
+for voyage in $(cat input/polarstern/voyages); do find data/polarstern/samples/train/ -name '*.nc' -exec cp -a {} data/polarstern/samples/train_wo_"$voyage" \;; done
+for voyage in $(cat input/polarstern/voyages); do find data/polarstern/samples/val/ -name '*.nc' -exec cp -a {} data/polarstern/samples/val_wo_"$voyage" \;; done
+parallel bin/ann_simple train data/polarstern/samples/train_wo_{} data/polarstern/samples/val_wo_{} data/ann/simple_wo_{}.h5 data/ann/simple_history_wo_{}.nc :::: input/polarstern/voyages
+parallel bin/ann_simple apply data/ann/simple_wo_{}.h5 data/polarstern/{}/cl51/near_surface/all/lidar/ data/polarstern/results/{}_wo_train.nc :::: input/polarstern/voyages
+parallel 'echo -n "{} "; bin/plot_roc data/polarstern/results/test_wo_{}.nc plot/polarstern/roc_wo_{}.pdf | head -n 1 | cut -d" " -f 5' :::: input/polarstern/voyages > data/polarstern/thresholds

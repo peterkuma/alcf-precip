@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+'''Print ALCF command time for processing lidar data at weather observation times.
+
+Usage: alcf_times INPUT [TYPE]
+
+Arguments:
+
+  INPUT  Input file - the output of polarstern_clouds (NetCDF).
+  TYPE   One of: clear, fog, rain, snow.
+'''
+
+import sys
+import numpy as np
+import ds_format as ds
+import aquarius_time as aq
+
+if __name__ == '__main__':
+	if len(sys.argv) not in (2, 3):
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+	input_ = sys.argv[1]
+	type_ = sys.argv[2] if len(sys.argv) == 3 else None
+	if type_ not in (None, 'clear', 'fog', 'rain', 'snow'):
+		raise ValueError('Invalid type "%s"' % type_)
+	d = ds.read(input_)
+	minute = 1/60/24
+	for i, t in enumerate(d['time']):
+		if type_ == 'clear' and not np.all(d['cloud_types'][i,27:30] == 0):
+			continue
+		elif type_ == 'fog' and d['cloud_types'][i,27] == 0:
+			continue
+		elif type_ == 'rain' and d['cloud_types'][i,28] == 0:
+			continue
+		elif type_ == 'snow' and d['cloud_types'][i,29] == 0:
+			continue
+		t1 = t - 5*minute
+		t2 = t + 5*minute
+		t1_iso = aq.to_iso(t1)
+		t2_iso = aq.to_iso(t2)
+		print('%s %s' % (t1_iso, t2_iso))

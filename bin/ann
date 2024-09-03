@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+'''Train or apply the artificial neural network (ANN).
+
+Usage: ann train INPUT INPUT_VAL OUTPUT OUTPUT_HISTORY [OPTIONS]
+       ann apply MODEL INPUT OUTPUT [OPTIONS]
+
+This program uses PST for command line argument parsing.
+
+Arguments (ann train):
+
+  INPUT           Input directory with samples. The output of prepare_samples (NetCDF).
+  INPUT_VAL       Input directory with validation samples (NetCDF).
+  OUTPUT          Output model (HDF5).
+  OUTPUT_HISTORY  History output (NetCDF).
+
+Arguments (ann apply):
+
+  MODEL   TensorFlow model (HDF5).
+  INPUT   Input directory with samples. The output of prepare_samples (NetCDF).
+  OUTPUT  Output samples directory (NetCDF).
+
+Options:
+
+  nclasses: VALUE  Number of cloud types. One of: 4, 10, 30. Default: 4.
+
+Examples:
+
+bin/ann train data/samples_train data/samples_val data/ann.h5 data/history.nc
+bin/ann apply data/ann.h5 data/samples data/samples_pred
+'''
+
+import warnings
+warnings.filterwarnings('ignore')
+
+import sys
+import re
+import os
+import random
+import numpy as np
+import ds_format as ds
+import aquarius_time as aq
+import matplotlib.pyplot as plt
+import pst
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import concatenate
+from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, \
+	AveragePooling2D, MaxPooling2D, Flatten, Dense, Dropout, \
+	BatchNormalization, Activation
+from tensorflow.keras.utils import Sequence
+
+META = {
+	'time': {
+		'.dims': ['sample', 'time'],
+		'long_name': 'time',
+		'standard_name': 'time',
+		'units': 'days since -4713-11-24 12:00 UTC',
+		'calendar': 'proleptic_gregorian',
+	},
+	'time_bnds': {
+		'.dims': ['sample', 'time', 'bnds'],
+		'long_name': 'time bounds',
+		'standard_name': 'time',
+		'units': 'days since -4713-11-24 12:00 UTC',
+		'calendar': 'proleptic_gregorian',
+	},
+	'zfull': {
+		'.dims': ['sample', 'level'],
+		'long_name': 'altitude of full-levels',
+		'standard_name': 'altitude',
+		'units': 'm',
+	},
+	'backscatter': {
+		'.dims': ['sample', 'time', 'level'],
+		'long_name': 'total attenuated volume backscattering coefficient',
+		'units': 'm-1 sr-1',
+	},
+	'stats': {
+		'.dims': ['sample', 'time', 'level', 'cloud_type'],
+		'long_name': 'label statistics',
+	},
+}
+
+def calc_stats_1(x, xn):
+	shape = x.shape
+	y = np.zeros((shape[0], 1), x.dtype)
+	yn = np.zeros((shape[0], 1), x.dtype)
+	y[:,0] = 1
+	yn[:,0] = 1
+	return y, yn
+
+def calc_stats_4(x, xn):
+	shape = x.shape
+	y = np.zeros((shape[0], 4), np.float64)
+	yn = np.zeros((shape[0], 4), np.float64)
+	y[:,0] = np.any(x[:,0:9], axis=1) # High
+	y[:,1] = np.any(x[:,9:18], axis=1) # Middle
+	y[:,2] = np.any(x[:,18:21], axis=1) | x[:,25] | x[:,26] # Cumuliform
+	y[:,3] = np.any(x[:,21:25], axis=1) # Stratiform
+	yn[:,0] = np.any(xn[:,0:9], axis=1) # High
+	yn[:,1] = np.any(xn[:,9:18], axis=1) # Middle
+	yn[:,2] = np.any(xn[:,18:21], axis=1) | xn[:,25] | xn[:,26] # Cumuliform
+	yn[:,3] = np.any(xn[:,21:25], axis=1) # Stratiform
+	#yn[:,0] = xn[:,0] # High
+	#yn[:,1] = xn[:,9] # Middle
+	#yn[:,2] = xn[:,18] # Cumuliform
+	#yn[:,3] = xn[:,18] # Stratiform
+	return y, yn
+
+def calc_stats_10(x, xn):
+	shape = x.shape
+	y = np.zeros((shape[0], 10), x.dtype)
+	yn = np.zeros((shape[0], 10), x.dtype)
+	y[:,0] = np.sum(x[:,0:6], axis=1) # Ci
+	y[:,1] = np.sum(x[:,6:8], axis=1) # Cs
+	y[:,2] = x[:,8,:,:] # Cc
+	y[:,3] = np.sum(x[:,9:11], axis=1) # As
+	y[:,4] = np.sum(x[:,11:18], axis=1) # Ac
+	y[:,5] = np.sum(x[:,18:21], axis=1) # Cu
+	y[:,6] = np.sum(x[:,21:23], axis=1) # Sc
+	y[:,7] = np.sum(x[:,23:25], axis=1) # St
+	y[:,8] = x[:,25] # Cu + Sc
+	y[:,9] = x[:,26] # Cb
+	yn[:,0] = xn[:,0] # Ci
+	yn[:,1] = xn[:,0] # Cs
+	yn[:,2] = xn[:,0] # Cc
+	yn[:,3] = xn[:,9] # As
+	yn[:,4] = xn[:,9] # Ac
+	yn[:,5] = xn[:,18] # Cu
+	yn[:,6] = xn[:,18] # Sc
+	yn[:,7] = xn[:,18] # St
+	yn[:,8] = xn[:,18] # Cu + Sc
+	yn[:,9] = xn[:,18] # Cb
+	return y, yn
+
+def get_loss_func(nclasses):
+	def loss_func(y_true, y_pred):
+		a = y_true[:,:,:,0:nclasses]
+		b = y_true[:,:,:,nclasses:(2*nclasses)]
+		c = y_pred[:,:,:,0:nclasses]
+		#c = tf.nn.sigmoid(y_pred[:,:,:,0:nclasses])
+		#c = tf.minimum(tf.maximum(c, 0), 1)
+		d = a*tf.experimental.numpy.log(tf.experimental.numpy.maximum(1e-10, c)) + \
+			(b - a)*tf.experimental.numpy.log(tf.experimental.numpy.maximum(1e-10, 1 - c))
+		#d = (b - a)*tf.experimental.numpy.log(1 - c)
+		#d = tf.experimental.numpy.log(tf.experimental.numpy.maximum(0, c))
+		#x = -tf.experimental.numpy.sum(d)
+		x = -tf.experimental.numpy.mean(d)
+		#x = tf.experimental.numpy.sum((c - a)**2)
+		return x
+	return loss_func
+
+def unet_encoder(x, n, kernel_size=3, batchnorm=True, dropout=0, maxpool=True,
+	strides=(2, 2)):
+
+	#y = Conv2D(n, (kernel_size, kernel_size), kernel_initializer='he_normal', \
+	y = Conv2D(n, kernel_size, kernel_initializer='he_normal', \
+		padding='same', activation='relu')(x)
+	#if batchnorm:
+	#	y = BatchNormalization()(y)
+	#y = Activation('relu')(y)
+	#y = Conv2D(n, (kernel_size, kernel_size), kernel_initializer='he_normal', \
+	y = Conv2D(n, kernel_size, kernel_initializer='he_normal', \
+		padding='same', activation='relu')(x)
+	#if batchnorm:
+	#	y = BatchNormalization()(y)
+	#y = Activation('relu')(y)
+	z = y
+	if maxpool:
+		y = AveragePooling2D(strides)(y)
+	if dropout > 0:
+		y = Dropout(dropout)(y)
+	return y, z
+
+def unet_decoder(x, z, n, kernel_size=3, batchnorm=True, dropout=0,
+	strides=(2, 2)):
+	#y = Conv2DTranspose(n, (kernel_size, kernel_size), strides=strides,
+	y = Conv2DTranspose(n, kernel_size, strides=strides,
+		padding='same')(x)
+	y = concatenate([y, z])
+	y = Dropout(dropout)(y)
+	y, _ = unet_encoder(y, n, kernel_size, batchnorm, 0, False)
+	return y
+
+#def unet_model(x, nclasses, n=16, dropout=0.1, batchnorm=True):
+#	y, c1 = unet_encoder(x, n*1, 3, batchnorm, dropout)
+#	y, c2 = unet_encoder(y, n*2, 3, batchnorm, dropout)
+#	y, c3 = unet_encoder(y, n*4, 3, batchnorm, dropout, strides=(3, 3))
+#	y, c4 = unet_encoder(y, n*8, (1, 3), batchnorm, dropout, strides=(1, 5))
+#	y, c5 = unet_encoder(y, n*16, (1, 3), batchnorm, dropout, strides=(1, 5))
+#	y, c6 = unet_encoder(y, n*32, 3, batchnorm, 0, False)
+#	y = unet_decoder(y, c5, n*16, (1, 3), batchnorm, dropout, strides=(1, 5))
+#	y = unet_decoder(y, c4, n*8, (1, 3), batchnorm, dropout, strides=(1, 5))
+#	y = unet_decoder(y, c3, n*4, 3, batchnorm, dropout, strides=(3, 3))
+#	y = unet_decoder(y, c2, n*2, 3, batchnorm, dropout)
+#	y = unet_decoder(y, c1, n*1, 3, batchnorm, dropout)
+#	#y = Conv2D(nclasses*2, (1, 1), activation='sigmoid')(y)
+#	y = Conv2D(nclasses*2, 1, activation='sigmoid')(y)
+#	#y = Conv2D(nclasses*2, (1, 1))(y)
+#	return Model(inputs=[x], outputs=[y])
+
+def unet_model(x, nclasses, n=16, dropout=0.1, batchnorm=True):
+	y, c1 = unet_encoder(x, n*1, 3, batchnorm, dropout)
+	y, c2 = unet_encoder(y, n*2, 3, batchnorm, dropout)
+	y, c3 = unet_encoder(y, n*4, 3, batchnorm, dropout)
+	y, c4 = unet_encoder(y, n*8, 3, batchnorm, dropout)
+	#y, c5 = unet_encoder(y, n*16, (1, 3), batchnorm, dropout, strides=(1, 2))
+	#y, c6 = unet_encoder(y, n*32, (1, 3), batchnorm, dropout, strides=(1, 2))
+	#y, c7 = unet_encoder(y, n*64, (1, 3), batchnorm, dropout, strides=(1, 2))
+	#y, c8 = unet_encoder(y, n*128, (1, 3), batchnorm, dropout, strides=(1, 2))
+	y, c9 = unet_encoder(y, n*16, 3, batchnorm, 0, False)
+	#y = unet_decoder(y, c8, n*128, (1, 3), batchnorm, dropout, strides=(1, 2))
+	#y = unet_decoder(y, c7, n*64, (1, 3), batchnorm, dropout, strides=(1, 2))
+	#y = unet_decoder(y, c6, n*32, (1, 3), batchnorm, dropout, strides=(1, 2))
+	#y = unet_decoder(y, c5, n*16, (1, 3), batchnorm, dropout, strides=(1, 2))
+	y = unet_decoder(y, c4, n*8, 3, batchnorm, dropout)
+	y = unet_decoder(y, c3, n*4, 3, batchnorm, dropout)
+	y = unet_decoder(y, c2, n*2, 3, batchnorm, dropout)
+	y = unet_decoder(y, c1, n*1, 3, batchnorm, dropout)
+	#y = Conv2D(nclasses*2, (1, 1), activation='sigmoid')(y)
+	#y = Conv2D(nclasses*2, 1, activation='sigmoid')(y)
+	y = Conv2D(nclasses*2, 1, activation='softmax')(y)
+	#y = Conv2D(nclasses*2, (1, 1))(y)
+	return Model(inputs=[x], outputs=[y])
+
+def read_samples(filename, nclasses=4, training=False):
+	print('<- %s' % filename)
+	d = ds.read(filename, ['backscatter', 'cloud_mask', 'time', 'time_bnds', \
+		'zfull', 'cloud_types', 'cloud_types_n'])
+
+	if training:
+		d['cloud_types'] = d['cloud_types'].filled(0)
+		d['cloud_types_n'] = d['cloud_types_n'].filled(0)
+
+	if training:
+		mask = np.all(d['cloud_types_n'] == 0, axis=1)
+		ds.select(d, {'sample': ~mask})
+
+	backscatter = d['backscatter'][:,:,:256]
+	cloud_mask = d['cloud_mask'][:,:,:256]
+	zfull = d['zfull'][:,:256]
+
+	l, n, m = backscatter.shape
+	#images = d['backscatter'].copy()
+	images = backscatter.copy()/1e-6
+	#images = np.zeros(list(d['backscatter'].shape) + [2], np.float64)
+	#images[:,:,:,0] = d['backscatter']
+	images[images < 0] = 0
+	images[np.isnan(images)] = -1
+	#print(images)
+	#images[d['cloud_mask'] == 0] = 0
+	images = images.reshape(list(images.shape) + [1])
+
+	calc_stats = {
+		1: calc_stats_1,
+		4: calc_stats_4,
+		10: calc_stats_10,
+		30: lambda x, xn: (x, xn)
+	}[nclasses]
+
+	if training:
+		cloud_types, cloud_types_n = calc_stats(
+			d['cloud_types'],
+			d['cloud_types_n']
+		)
+		#print(cloud_types[:,1])
+		#print(cloud_types_n[:,1])
+		nclasses = cloud_types.shape[1]
+		labels = np.full((l, n, m, nclasses*2), np.nan, np.float64)
+		for i in range(n):
+			for j in range(m):
+					labels[:,i,j,:nclasses] = cloud_types
+					labels[:,i,j,nclasses:] = cloud_types_n
+		#labels[d['cloud_mask'] == 0,:] = 0
+		labels[cloud_mask == 0,:nclasses] = 0
+		labels[cloud_mask == 0,nclasses:] = 1
+
+		labels[np.isnan(labels)] = 0
+		#labels[d['cloud_mask'] == 0,:nclasses] = np.nan
+		#labels[d['cloud_mask'] == 0,nclasses:] = np.nan
+		#print(labels[10,:,:20,0])
+		#sys.exit(0)
+		mask = np.any(cloud_mask == 1, axis=(1,2))
+		#mask = np.ones(l, bool)
+	else:
+		labels = None
+		mask = np.ones(l, bool)
+
+	return {
+		'images': images[mask],
+		'labels': labels[mask] if labels is not None else None,
+		'time': d['time'][mask],
+		'time_bnds': d['time_bnds'][mask],
+		'zfull': zfull[mask],
+		'backscatter': backscatter[mask],
+		'cloud_mask': cloud_mask[mask],
+	}
+
+def apply_(model_file, input_, output, nclasses=4):
+	files = os.listdir(input_)
+	for file_ in sorted(files):
+		if not file_.endswith('.nc'):
+			continue
+		filename = os.path.join(input_, file_)
+		d = read_samples(filename, nclasses=nclasses)
+
+		model = keras.models.load_model(model_file,
+			custom_objects={'loss_func': get_loss_func(nclasses)})
+		#model = keras.models.load_model(model_file)
+		#d['images'][::] = 1
+
+		stats1 = model.predict(d['images'])
+		#stats1 = tf.nn.sigmoid(stats1)
+		#stats1 = stats1.numpy()
+
+		ds.write('output2.nc', {
+			'images': d['images'],
+			'labels': stats1,
+			'.': {
+				'images': {
+					'.dims': ['sample', 'x', 'y', 'image_channel'],
+				},
+				'labels': {
+					'.dims': ['sample', 'x', 'y', 'label_channel'],
+				},
+			}
+		})
+
+		#print(np.mean(stats1[:,:,:,:nclasses], axis=(0,1,2)))
+
+		#stats1[d['cloud_mask'] == 0,:] = 0
+
+		stats1 = stats1[:,:,:,:nclasses]
+
+		#s = np.sum(stats1, axis=3)
+		#mask = s > 0
+		#for i in range(nclasses):
+		#	stats1[mask,i] /= s[mask]
+
+		#print(np.nanmean(stats1, axis=(0,1,2)))
+		#print(np.any(stats1[:,:,:,3] > 0.1, axis=(1,2)))
+
+		#for i in range(nclasses):
+		#	mask = d['cloud_mask'] == 1
+		#	print(np.mean(stats1[mask,i]))
+		#sys.exit(0)
+
+		output_filename = os.path.join(output, file_)
+		print('-> %s' % output_filename)
+		ds.write(output_filename, {
+			'time': d['time'],
+			'time_bnds': d['time_bnds'],
+			'zfull': d['zfull'],
+			'backscatter': d['backscatter'],
+			'stats': stats1[:,:,:,:nclasses],
+			'.': META,
+		})
+
+def read_dataset(input_, nclasses=4):
+	images = []
+	labels = []
+	for file_ in sorted(os.listdir(input_)):
+		if not file_.endswith('.nc'):
+			continue
+		filename = os.path.join(input_, file_)
+		d = read_samples(filename, nclasses=nclasses, training=True)
+		images += [d['images']]
+		labels += [d['labels']]
+	images = np.concatenate(images)
+	labels = np.concatenate(labels)
+	return images, labels
+
+def train(input_, input_val, output, output_history, nclasses=4):
+	train_images, train_labels = read_dataset(input_, nclasses=nclasses)
+	test_images, test_labels = read_dataset(input_val, nclasses=nclasses)
+
+	#train_images[::] = 1
+	#test_images[::] = 1
+	#train_labels[::] = 1
+	#test_labels[::] = 1
+
+	#train_images = np.ones((920, 12, 300, 1), np.float64)
+	#train_labels = np.ones((920, 12, 300, 8), np.float64)
+	#train_labels[:,:,:,0] = 0.1
+	#train_labels[:,:,:,1] = 0.2
+	#train_labels[:,:,:,2] = 0.3
+	#train_labels[:,:,:,3] = 0.4
+
+	#mask = train_labels[:,:,:,nclasses] > 0
+	#for i in range(nclasses):
+	#	print(i, np.mean(train_labels[mask,i]))
+	#sys.exit(0)
+
+	#for i in range(nclasses):
+	#	mask = train_labels[:,:,:,nclasses] == 1
+	#	print(np.mean(train_labels[mask,i]))
+	#sys.exit(0)
+
+	policy = tf.keras.mixed_precision.Policy('float64')
+	tf.keras.mixed_precision.set_global_policy(policy)
+
+	#input_ = Input((12, 300, 1))
+	input_ = Input((16, 256, 1))
+	model = unet_model(input_, nclasses, 16, 0.1, True)
+
+	#print(train_images.shape, train_labels.shape)
+
+	model.compile(optimizer='adam',
+				  loss=get_loss_func(nclasses),
+				  #loss=tf.keras.losses.MeanSquaredError(),
+				  metrics=['accuracy'])
+
+	callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
+
+	ds.write('output.nc', {
+		'images': train_images,
+		'labels': train_labels,
+		'.': {
+			'images': {
+				'.dims': ['sample', 'x', 'y', 'image_channel'],
+			},
+			'labels': {
+				'.dims': ['sample', 'x', 'y', 'label_channel'],
+			},
+		}
+	})
+
+	history = model.fit(train_images, train_labels,
+		epochs=100,
+		validation_data=(test_images, test_labels),
+		callbacks=[callback],
+	)
+
+	print('-> %s' % output)
+	model.save(output)
+
+	ds.write(output_history, {
+		'loss': np.array(history.history['loss']),
+		'val_loss': np.array(history.history['val_loss']),
+		'.': {
+			'loss': {'.dims': ['round']},
+			'val_loss': {'.dims': ['round']},
+		},
+	})
+
+if __name__ == '__main__':
+	args, opts = pst.decode_argv(sys.argv, as_unicode=True)
+	if len(args) < 2:
+		sys.stderr.write(sys.modules[__name__].__doc__)
+		sys.exit(1)
+	action = args[1]
+	nclasses = opts.get('nclasses', 4)
+
+	tf.config.threading.set_inter_op_parallelism_threads(24)
+
+	if action == 'train':
+		if len(args) != 6:
+			sys.stderr.write(sys.modules[__name__].__doc__)
+			sys.exit(1)
+		input_ = args[2]
+		input_val = args[3]
+		output = args[4]
+		output_history = args[5]
+		train(input_, input_val, output, output_history, nclasses=nclasses)
+	elif action == 'apply':
+		if len(args) != 5:
+			sys.stderr.write(sys.modules[__name__].__doc__)
+			sys.exit(1)
+		model = args[2]
+		input_ = args[3]
+		output = args[4]
+		apply_(model, input_, output, nclasses=nclasses)
+	else:
+		raise ValueError('Unknown action "%s"' % action)
