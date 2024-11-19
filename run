@@ -1,31 +1,32 @@
 #!/usr/bin/env bash
 set -e -x
 
-SHIPS="tangaroa polarstern"
+run_alcf () {
+	type_="$1"
+	in="$2"
+	out="$3"
+	alcf lidar $type_ $in $out output_sampling: 3600 tres: 225 noise_removal_sampling: 225
+}
 
 case "$1" in
 alcf)
-	for ship in $SHIPS; do
-		for lidar in $(cat input/$ship/lidars); do
-			parallel alcf lidar $lidar input/$ship/$lidar/{} data/$ship/{}/$lidar/plain/ output_sampling: 3600 tres: 225 noise_removal_sampling: 225 :::: input/$ship/voyages
-		done
-	done
+	run_alcf chm15k input/samples/{} data/samples/{}/plain :::: input/sources/by_instrument/chm15k
 	;;
 
 weather)
-	bin/tan1802_clouds input/tangaroa/tan1802/weather.csv data/tangaroa/tan1802/weather.nc
-	parallel bin/polarstern_clouds input/polarstern/weather/{}.tsv data/polarstern/{}/weather.nc :::: input/polarstern/voyages
+	bin/weather_tan1802 input/weather/TAN1802.csv data/weather/TAN1802.nc
+	parallel bin/weather_ps input/weather/{}.tsv data/weater/{}.nc :::: input/sources/by_platform/ps
 	;;
 
 prepare_data)
 	for ship in $SHIPS; do
 		for lidar in $(cat input/$ship/lidars); do
 			parallel mkdir -p data/$ship/{}/$lidar/all :::: input/"$ship"/voyages
-			parallel mkdir -p data/$ship/{}/$lidar/train/samples :::: input/"$ship"/voyages
-			parallel mkdir -p data/$ship/{}/$lidar/val/samples :::: input/"$ship"/voyages
-			parallel mkdir -p data/$ship/{}/$lidar/pred/samples :::: input/"$ship"/voyages
+			parallel mkdir -p data/$ship/{}/$lidar/training/samples :::: input/"$ship"/voyages
+			parallel mkdir -p data/$ship/{}/$lidar/validation/samples :::: input/"$ship"/voyages
+			parallel mkdir -p data/$ship/{}/$lidar/predidation/samples :::: input/"$ship"/voyages
 		done
-		mkdir -p data/all data/{train,val,pred}/samples
+		mkdir -p data/all data/{training,validation,prediction}/samples
 	done
 	;;
 
@@ -37,7 +38,7 @@ prepare_samples)
 	done
 	;;
 
-prepare_train_val_per_voyage)
+prepare_training_validation_per_voyage)
 	for ship in $SHIPS; do
 		for voyage in $(cat input/$ship/voyages); do
 			for lidar in $(cat input/$ship/lidars); do
@@ -45,18 +46,18 @@ prepare_train_val_per_voyage)
 				ls $dir/all/*T*.nc | shuf > $dir/all/files
 				n=$(wc -l $dir/all/files | cut -d' ' -f1)
 				nval=$(echo "print(round($n*0.2))" | python3)
-				head -n $nval $dir/all/files > $dir/all/files_val
-				tail -n +$(($nval+1)) $dir/all/files > $dir/all/files_train
-				rm $dir/train/samples/*T*.nc || true
-				rm $dir/val/samples/*T*.nc || true
-				parallel ln -s ../../all/{/} $dir/train/samples/{/} :::: $dir/all/files_train
-				parallel ln -s ../../all/{/} $dir/val/samples/{/} :::: $dir/all/files_val
+				head -n $nval $dir/all/files > $dir/all/files_validation
+				tail -n +$(($nval+1)) $dir/all/files > $dir/all/files_trainining
+				rm $dir/training/samples/*T*.nc || true
+				rm $dir/validation/samples/*T*.nc || true
+				parallel ln -s ../../all/{/} $dir/training/samples/{/} :::: $dir/all/files_training
+				parallel ln -s ../../all/{/} $dir/validation/samples/{/} :::: $dir/all/files_validation
 			done
 		done
 	done
 	;;
 
-prepare_train_val)
+prepare_training_validation)
 	rm data/all/*T*.nc || true
 	for ship in $SHIPS; do
 		for voyage in $(cat input/$ship/voyages); do
@@ -69,22 +70,29 @@ prepare_train_val)
 	ls $dir/all/*T*.nc | shuf > $dir/all/files
 	n=$(wc -l $dir/all/files | cut -d' ' -f1)
 	nval=$(echo "print(round($n*0.2))" | python3)
-	head -n $nval $dir/all/files > $dir/all/files_val
-	tail -n +$(($nval+1)) $dir/all/files > $dir/all/files_train
-	rm $dir/train/samples/*T*.nc || true
-	rm $dir/val/samples/*T*.nc || true
-	parallel ln -s ../../all/{/} $dir/train/samples/{/} :::: $dir/all/files_train
-	parallel ln -s ../../all/{/} $dir/val/samples/{/} :::: $dir/all/files_val
-	ds merge sample data/train/samples/*.nc data/train/all.nc
-	ds merge sample data/val/samples/*.nc data/val/all.nc
+	head -n $nval $dir/all/files > $dir/all/files_validation
+	tail -n +$(($nval+1)) $dir/all/files > $dir/all/files_trainining
+	rm $dir/training/samples/*T*.nc || true
+	rm $dir/valdation/samples/*T*.nc || true
+	parallel ln -s ../../all/{/} $dir/training/samples/{/} :::: $dir/all/files_training
+	parallel ln -s ../../all/{/} $dir/validation/samples/{/} :::: $dir/all/files_validation
+	ds merge sample data/training/samples/*.nc data/training/all.nc
+	ds merge sample data/validation/samples/*.nc data/validation/all.nc
 	;;
 
 train)
-	bin/ann train data/{train,val,ann.h5,history.nc} nclasses: 30
+	bin/ann_simple train \
+		data/training \
+		data/validation \
+		data/ann/simple.h5 \
+		data/ann_history/simple.nc
 	;;
 
 apply)
-	bin/ann apply data/{ann.h5,val,pred} nclasses: 30
+	bin/ann_simple apply \
+		data/ann/simple.h5 \
+		data/validation \
+		data/prediction
 	;;
 
 *)

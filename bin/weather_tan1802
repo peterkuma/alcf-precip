@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 '''Extract cloud types from a TAN1802 weather report.
 
-Usage: tan1802_clouds INPUT OUTPUT
+Usage: weather_tan1802 INPUT OUTPUT
 
 Arguments:
 
