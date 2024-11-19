@@ -1,0 +1,7 @@
+alcf==2.0.1
+aquarius_time==0.4.0
+ds_format==4.1.0
+matplotlib==3.7.2
+numpy==1.24.2
+pst-format==2.0.0
+tensorflow==2.13.0
