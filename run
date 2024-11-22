@@ -45,6 +45,22 @@ subsets () {
 
 case "$1" in
 
+all)
+	./run weather
+	./run alcf
+	./run alcf_times
+	./run prepare_samples
+	./run label_samples
+	./run subsets
+	./run train
+	./run train_wo
+	./run test
+	./run test_wo
+	./run pred
+	./run plot_roc
+	./run precip_ann
+	./run alcf_filter
+
 weather)
 	mkdir -p "$DATA/weather"
 	parallel -t bin/weather_ps \

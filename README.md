@@ -71,6 +71,13 @@ The following command are run as `./run` *cmd*, where *cmd* is the command
 name. "Requires" lists commands which have to be run before running the current
 command.
 
+After running the commands, the resulting ALCF filters for each data source
+are stored in `data/alcf_filter`.
+
+### all
+
+Run all of the commands below in a sequence.
+
 ### weather
 
 Extract cloud types from weather reports.
@@ -120,6 +127,12 @@ Train ANNs without each data source.
 Requires: `train`
 
 Test the ANN.
+
+### test_wo
+
+Requires: `train_wo`
+
+The same as above, for for ANNs trained without each data sources.
 
 ### pred
 
