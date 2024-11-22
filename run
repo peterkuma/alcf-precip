@@ -3,6 +3,7 @@ set -e -x
 
 DATA=data
 INPUT=input
+PLOT=plot
 LABELS="clear fog rain snow"
 ALCF_OPTS="tres: 36 zres: 10 zlim: { 0 250 } output_sampling: 600 align_output: false"
 
@@ -175,9 +176,11 @@ pred)
 	;;
 
 plot_roc)
-	mkdir -p plot/roc_wo
+	mkdir -p "$PLOT"
+	bin/plot_roc "$DATA/results/test.nc" "$PLOT/roc.pdf"
+	mkdir -p "$PLOT/roc_wo"
 	parallel \
-		'echo -n "{} "; bin/plot_roc '"$DATA"'/results/test_wo/{}.nc plot/roc_wo/{}.pdf | head -n 1 | cut -d" " -f 5' \
+		'echo -n "{} "; bin/plot_roc '"$DATA"'/results/test_wo/{}.nc '"$PLOT"'/roc_wo/{}.pdf | head -n 1 | cut -d" " -f 5' \
 		:::: "$INPUT/sources" > "$DATA/thresholds"
 	;;
 
