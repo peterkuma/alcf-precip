@@ -25,7 +25,7 @@ subsets () {
 			glob="$in/$x/$label/lidar/*.nc"
 			set -- $glob
 			if [ -e "$1" ]; then
-				parallel ln -s {} "$out/train/$x"_{/} ::: $glob
+				parallel -t ln -s {} "$out/train/$x"_{/} ::: $glob
 			fi
 		done
 	done
@@ -35,10 +35,10 @@ subsets () {
 	local n_test="$(echo "print(round($n*$frac_test))" | python3)"
 	head -n "$n_val" "$out/list" > "$out/list_val"
 	tail -n "$n_test" "$out/list" > "$out/list_test"
-	parallel \
+	parallel -t \
 		mv "$out/train/"{} "$out/val/" \
 		:::: "$out/list_val"
-	parallel \
+	parallel -t \
 		mv "$out/train/"{} "$out/test/" \
 		:::: "$out/list_test"
 }
@@ -47,17 +47,17 @@ case "$1" in
 
 weather)
 	mkdir -p "$DATA/weather"
-	parallel bin/weather_ps \
+	parallel -t bin/weather_ps \
 		"$INPUT"/weather/{}.tsv \
 		"$DATA/weather/"{}.nc \
 		:::: "$INPUT/sources"
 	;;
 
 alcf)
-	parallel \
+	parallel -t \
 		mkdir -p "$DATA"/samples/{}/all \
 		:::: "$INPUT/sources"
-	parallel \
+	parallel -t \
 		alcf auto lidar cl51 \
 		"$INPUT"/samples/{} \
 		"$DATA"/samples/{}/all \
@@ -98,7 +98,7 @@ label_samples)
 			glob="$DATA/samples/$x/$label/lidar/"*.nc
 			set -- $glob
 			if [ -e "$1" ]; then
-				parallel ds set label: "$label" {} {} \
+				parallel -t ds set label: "$label" {} {} \
 					::: $glob
 			fi
 		done
@@ -138,7 +138,7 @@ train)
 train_wo)
 	mkdir -p "$DATA/ann/wo"
 	mkdir -p "$DATA/ann_history/wo"
-	parallel \
+	parallel -t \
 		bin/ann train \
 		"$DATA"/subsets/wo/{}/train \
 		"$DATA"/subsets/wo/{}/val \
@@ -157,7 +157,7 @@ test)
 
 test_wo)
 	mkdir -p "$DATA/results/test_wo"
-	parallel \
+	parallel -t \
 		bin/ann apply \
 		"$DATA"/ann/wo/{}.h5 \
 		"$DATA"/subsets/labeled/{} \
@@ -167,7 +167,7 @@ test_wo)
 
 pred)
 	mkdir -p "$DATA/pred"
-	parallel \
+	parallel -t \
 		bin/ann apply \
 		"$DATA/ann/all.h5" \
 		"$DATA"/samples/{}/all/lidar \
@@ -179,7 +179,7 @@ plot_roc)
 	mkdir -p "$PLOT"
 	bin/plot_roc "$DATA/results/test.nc" "$PLOT/roc.pdf"
 	mkdir -p "$PLOT/roc_wo"
-	parallel \
+	parallel -t \
 		'echo -n "{} "; bin/plot_roc '"$DATA"'/results/test_wo/{}.nc '"$PLOT"'/roc_wo/{}.pdf | head -n 1 | cut -d" " -f 5' \
 		:::: "$INPUT/sources" > "$DATA/thresholds"
 	;;
@@ -192,6 +192,10 @@ precip_ann)
 	;;
 
 alcf_filter)
+	mkdir -p "$DATA/alcf_filter"
+	parallel -t \
+		bin/alcf_filter "$DATA"/precip/{}.nc "$DATA"/alcf_filter/{}.nc \
+		:::: "$INPUT/sources"
 	;;
 
 *)

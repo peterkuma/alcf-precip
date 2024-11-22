@@ -119,3 +119,15 @@ Requires: `test`
 
 Plot ROC from test results and calculate thresholds for precipitation
 probability.
+
+### precip_ann
+
+Requires: `precip`, `plot_roc`
+
+Calculate precipitation periods from the ANN results.
+
+### alcf_filter
+
+Requires: `precip_ann`
+
+Create ALCF filter from precipitation periods.
