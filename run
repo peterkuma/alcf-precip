@@ -1,98 +1,194 @@
 #!/usr/bin/env bash
 set -e -x
 
-run_alcf () {
-	type_="$1"
-	in="$2"
-	out="$3"
-	alcf lidar $type_ $in $out output_sampling: 3600 tres: 225 noise_removal_sampling: 225
+DATA=data
+INPUT=input
+LABELS="clear fog rain snow"
+ALCF_OPTS="tres: 36 zres: 10 zlim: { 0 250 } output_sampling: 600 align_output: false"
+
+subsets () {
+	local out="$1"
+	local frac_val="$2"
+	local frac_test="$3"
+	local wo="$4"
+	mkdir -p "$out"/{train,val,test}
+	rm -f "$out/train/"*.nc
+	rm -f "$out/val/"*.nc
+	rm -f "$out/test/"*.nc
+	for x in $(cat "$INPUT/sources"); do
+		local in="$(realpath "$DATA/samples")"
+		if [ "$x" = "$wo" ]; then
+			continue
+		fi
+		for label in clear rain snow fog; do
+			glob="$in/$x/$label/lidar/*.nc"
+			set -- $glob
+			if [ -e "$1" ]; then
+				parallel ln -s {} "$out/train/$x"_{/} ::: $glob
+			fi
+		done
+	done
+	ls "$out/train" | shuf > "$out/list"
+	local n="$(wc -l "$out/list" | cut -d' ' -f1)"
+	local n_val="$(echo "print(round($n*$frac_val))" | python3)"
+	local n_test="$(echo "print(round($n*$frac_test))" | python3)"
+	head -n "$n_val" "$out/list" > "$out/list_val"
+	tail -n "$n_test" "$out/list" > "$out/list_test"
+	parallel \
+		mv "$out/train/"{} "$out/val/" \
+		:::: "$out/list_val"
+	parallel \
+		mv "$out/train/"{} "$out/test/" \
+		:::: "$out/list_test"
 }
 
 case "$1" in
-alcf)
-	run_alcf chm15k input/samples/{} data/samples/{}/plain :::: input/sources/by_instrument/chm15k
-	;;
 
 weather)
-	bin/weather_tan1802 input/weather/TAN1802.csv data/weather/TAN1802.nc
-	parallel bin/weather_ps input/weather/{}.tsv data/weater/{}.nc :::: input/sources/by_platform/ps
+	mkdir -p "$DATA/weather"
+	parallel bin/weather_ps \
+		"$INPUT"/weather/{}.tsv \
+		"$DATA/weather/"{}.nc \
+		:::: "$INPUT/sources"
 	;;
 
-prepare_data)
-	for ship in $SHIPS; do
-		for lidar in $(cat input/$ship/lidars); do
-			parallel mkdir -p data/$ship/{}/$lidar/all :::: input/"$ship"/voyages
-			parallel mkdir -p data/$ship/{}/$lidar/training/samples :::: input/"$ship"/voyages
-			parallel mkdir -p data/$ship/{}/$lidar/validation/samples :::: input/"$ship"/voyages
-			parallel mkdir -p data/$ship/{}/$lidar/predidation/samples :::: input/"$ship"/voyages
+alcf)
+	parallel \
+		mkdir -p "$DATA"/samples/{}/all \
+		:::: "$INPUT/sources"
+	parallel \
+		alcf auto lidar cl51 \
+		"$INPUT"/samples/{} \
+		"$DATA"/samples/{}/all \
+		$ALCF_OPTS \
+		:::: "$INPUT/sources"
+	;;
+
+alcf_times)
+	for label in $LABELS; do
+		mkdir -p "$DATA/alcf_times/$label"
+		for x in $(cat "$INPUT/sources"); do
+			bin/alcf_times "$DATA/weather/$x.nc" "$label" \
+				> "$DATA/alcf_times/$label/$x"
 		done
-		mkdir -p data/all data/{training,validation,prediction}/samples
 	done
 	;;
 
 prepare_samples)
-	for ship in $SHIPS; do
-		for lidar in $(cat input/$ship/lidars); do
-			parallel bin/prepare_samples data/$ship/{}/$lidar/plain data/$ship/{}/weather.nc data/$ship/{}/$lidar/all :::: input/$ship/voyages
+	for label in $LABELS; do
+		for x in $(cat "$INPUT/sources"); do
+			out="$DATA/samples/$x/$label/lidar"
+			mkdir -p "$out"
+			parallel -t -C ' ' \
+				alcf lidar cl51 \
+				"$INPUT/samples/$x" \
+				"$out" \
+				time: { {1} {2} } \
+				$ALCF_OPTS \
+				align_output: false \
+				:::: "$DATA/alcf_times/$label/$x"
 		done
 	done
 	;;
 
-prepare_training_validation_per_voyage)
-	for ship in $SHIPS; do
-		for voyage in $(cat input/$ship/voyages); do
-			for lidar in $(cat input/$ship/lidars); do
-				dir=data/$ship/$voyage/$lidar
-				ls $dir/all/*T*.nc | shuf > $dir/all/files
-				n=$(wc -l $dir/all/files | cut -d' ' -f1)
-				nval=$(echo "print(round($n*0.2))" | python3)
-				head -n $nval $dir/all/files > $dir/all/files_validation
-				tail -n +$(($nval+1)) $dir/all/files > $dir/all/files_trainining
-				rm $dir/training/samples/*T*.nc || true
-				rm $dir/validation/samples/*T*.nc || true
-				parallel ln -s ../../all/{/} $dir/training/samples/{/} :::: $dir/all/files_training
-				parallel ln -s ../../all/{/} $dir/validation/samples/{/} :::: $dir/all/files_validation
-			done
+label_samples)
+	for label in $LABELS; do
+		for x in $(cat "$INPUT/sources"); do
+			glob="$DATA/samples/$x/$label/lidar/"*.nc
+			set -- $glob
+			if [ -e "$1" ]; then
+				parallel ds set label: "$label" {} {} \
+					::: $glob
+			fi
 		done
 	done
 	;;
 
-prepare_training_validation)
-	rm data/all/*T*.nc || true
-	for ship in $SHIPS; do
-		for voyage in $(cat input/$ship/voyages); do
-			for lidar in $(cat input/$ship/lidars); do
-				parallel ln -s ../../{} data/all/${ship}_${voyage}_${lidar}_{/} ::: data/$ship/$voyage/$lidar/all/*T*.nc
-			done
+subsets)
+	subsets "$DATA/subsets" 0.2 0.2
+	for x in $(cat "$INPUT/sources"); do
+		subsets "$DATA/subsets/wo/$x" 0.2 0 "$x"
+	done
+	for x in $(cat "$INPUT/sources"); do
+		in="$(realpath "$DATA/samples")"
+		out="$DATA/subsets/labeled/$x"
+		rm -f "$out"/*.nc
+		mkdir -p "$out"
+		for label in clear fog rain snow; do
+			glob="$in/$x/$label/lidar/"*.nc
+			set -- $glob
+			if [ -e "$1" ]; then
+				ln -s $glob "$out/"
+			fi
 		done
 	done
-	dir=data
-	ls $dir/all/*T*.nc | shuf > $dir/all/files
-	n=$(wc -l $dir/all/files | cut -d' ' -f1)
-	nval=$(echo "print(round($n*0.2))" | python3)
-	head -n $nval $dir/all/files > $dir/all/files_validation
-	tail -n +$(($nval+1)) $dir/all/files > $dir/all/files_trainining
-	rm $dir/training/samples/*T*.nc || true
-	rm $dir/valdation/samples/*T*.nc || true
-	parallel ln -s ../../all/{/} $dir/training/samples/{/} :::: $dir/all/files_training
-	parallel ln -s ../../all/{/} $dir/validation/samples/{/} :::: $dir/all/files_validation
-	ds merge sample data/training/samples/*.nc data/training/all.nc
-	ds merge sample data/validation/samples/*.nc data/validation/all.nc
 	;;
 
 train)
-	bin/ann_simple train \
-		data/training \
-		data/validation \
-		data/ann/simple.h5 \
-		data/ann_history/simple.nc
+	mkdir -p "$DATA/ann"
+	mkdir -p "$DATA/ann_history"
+	bin/ann train \
+		"$DATA/subsets/train" \
+		"$DATA/subsets/val" \
+		"$DATA/ann/all.h5" \
+		"$DATA/ann_history/all.nc" \
 	;;
 
-apply)
-	bin/ann_simple apply \
-		data/ann/simple.h5 \
-		data/validation \
-		data/prediction
+train_wo)
+	mkdir -p "$DATA/ann/wo"
+	mkdir -p "$DATA/ann_history/wo"
+	parallel \
+		bin/ann train \
+		"$DATA"/subsets/wo/{}/train \
+		"$DATA"/subsets/wo/{}/val \
+		"$DATA"/ann/wo/{}.h5 \
+		"$DATA"/ann_history/wo/{}.nc \
+		:::: "$INPUT/sources"
+	;;
+
+test)
+	mkdir -p "$DATA/results"
+	bin/ann apply \
+		"$DATA/ann/all.h5" \
+		"$DATA/subsets/test" \
+		"$DATA/results/test.nc"
+	;;
+
+test_wo)
+	mkdir -p "$DATA/results/test_wo"
+	parallel \
+		bin/ann apply \
+		"$DATA"/ann/wo/{}.h5 \
+		"$DATA"/subsets/labeled/{} \
+		"$DATA"/results/test_wo/{}.nc \
+		:::: "$INPUT/sources"
+	;;
+
+pred)
+	mkdir -p "$DATA/pred"
+	parallel \
+		bin/ann apply \
+		"$DATA/ann/all.h5" \
+		"$DATA"/samples/{}/all/lidar \
+		"$DATA"/pred/{}.nc \
+		:::: "$INPUT/sources"
+	;;
+
+plot_roc)
+	mkdir -p plot/roc_wo
+	parallel \
+		'echo -n "{} "; bin/plot_roc '"$DATA"'/results/test_wo/{}.nc plot/roc_wo/{}.pdf | head -n 1 | cut -d" " -f 5' \
+		:::: "$INPUT/sources" > "$DATA/thresholds"
+	;;
+
+precip_ann)
+	mkdir -p "$DATA/precip"
+	parallel -t \
+		'bin/precip_ann $(grep {} '"$DATA"'/thresholds | cut -d " " -f 2) '"$DATA"'/pred/{}.nc '"$DATA"'/precip/{}.nc' \
+		:::: "$INPUT/sources"
+	;;
+
+alcf_filter)
 	;;
 
 *)

@@ -54,3 +54,68 @@ working with the code, the environment can be deactivated with `deactivate`.
 
 ## Commands
 
+The following command are run as `./run` *cmd*, where *cmd* is the command
+name.
+
+### weather
+
+Extract cloud types from weather reports.
+
+### alcf
+
+Run the ALCF to produce samples of near-surface backscatter.
+
+### alcf_times
+
+Requires: `weather`
+
+Determine time periods of the weather types for use with the ACLF.
+
+### prepare_samples
+
+Requires: `alcf_times`
+
+Prepare training samples.
+
+### label_samples
+
+Requires: `prepare_samples`
+
+Label training samples with weather types.
+
+### subsets
+
+Requires: `prepare_samples`
+
+Sort the samples into training, validation and testing subsets.
+
+### train
+
+Requires: `subsets`
+
+Train an ANN.
+
+### train_wo
+
+Requires: `subsets`
+
+Train ANNs without each data source.
+
+### test
+
+Requires: `train`
+
+Test the ANN.
+
+### pred
+
+Requires: `train`, `alcf`
+
+Run prediction on all data sources.
+
+### plot_roc
+
+Requires: `test`
+
+Plot ROC from test results and calculate thresholds for precipitation
+probability.
