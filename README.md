@@ -62,6 +62,9 @@ python3 -m venv venv
 pip3 install -r requirements.txt
 ```
 
+**Note:** Based on your Python distribution, you might have to replace
+`python3` with `python`.
+
 This also activates the environment for the current session. After finishing
 working with the code, the environment can be deactivated with `deactivate`.
 
