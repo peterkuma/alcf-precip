@@ -68,7 +68,8 @@ working with the code, the environment can be deactivated with `deactivate`.
 ## Commands
 
 The following command are run as `./run` *cmd*, where *cmd* is the command
-name.
+name. "Requires" lists commands which have to be run before running the current
+command.
 
 ### weather
 
