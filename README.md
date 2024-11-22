@@ -145,3 +145,8 @@ Calculate precipitation periods from the ANN results.
 Requires: `precip_ann`
 
 Create ALCF filter from precipitation periods.
+
+## License
+
+The code is Copyright © 2023–2024 Peter Kuma and licensed under the MIT license
+(see `LICENSE.md`).
