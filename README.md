@@ -1,10 +1,23 @@
 # ALCF precipitation detection
 
+**This repository is currently in preparation.**
+
 This repository contains code for detecting precipitation in lidar data using
 an artificial neural network for use with the [Automatic Lidar and Ceilometer
 Framework](https://alcf.peterkuma.net).
 
-The code is currently in development.
+The end product of running the code is and ALCF include filter, which can be
+used with the "alcf stats" and "alcf auto lidar" commands to filter out
+precipitation when calculating statistics. This is useful in order to get an
+unbiased comparison with a model. ALCF currently does not support simulating
+precipitation. Therefore, excluding precipitation from observations can be
+important for the comparison. Otherwise, precipitation in observations can be
+recognized as cloud, and contribute to the cloud occurrence statistics.
+
+Description of this code can be found in the paper [Ship and ground-based lidar
+and radiosonde evaluation of Southern Ocean clouds in the storm-resolving
+general circulation model ICON and the ERA5 and MERRA-2
+reanalyses](https://doi.org/10.5281/zenodo.14071808), Section 2.9.
 
 ## Requirements
 
