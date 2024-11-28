@@ -104,17 +104,18 @@ especially if there are any errors.
 
 ### weather
 
-Extract cloud types from weather reports.
+Extract cloud types from weather reports for training.
 
 ### alcf
 
-Run the ALCF to produce samples of near-surface backscatter.
+Run the ALCF to produce samples of near-surface backscatter for prediction.
 
 ### alcf_times
 
 Requires: `weather`
 
-Determine the time periods of the weather types for use with the ACLF.
+Determine the time periods of the weather types for use with the ACLF for
+traning.
 
 ### prepare_samples
 
@@ -132,7 +133,7 @@ Label training samples with weather types.
 
 Requires: `prepare_samples`
 
-Sort the samples into training, validation, and testing subsets.
+Sort the training samples into training, validation, and testing subsets.
 
 ### train
 
@@ -144,7 +145,7 @@ Train an ANN.
 
 Requires: `subsets`
 
-Train ANNs without each data source.
+Train multiple ANNs excluding each data source (for testing).
 
 ### test
 
@@ -156,13 +157,15 @@ Test the ANN.
 
 Requires: `train_wo`
 
-The same as above, but for ANNs trained without each data source.
+The same as above, but for ANNs trained excluding each data source.
 
 ### pred
 
-Requires: `train`, `alcf`
+Requires: `train`\*, `alcf`
 
 Run prediction on all data sources.
+
+\*Only required if the supplied ANN (`data/ann/all.h5`) is not to be used.
 
 ### plot_roc
 
@@ -173,9 +176,12 @@ probability.
 
 ### precip_ann
 
-Requires: `precip`, `plot_roc`
+Requires: `pred`, `plot_roc`\*
 
-Calculate precipitation periods from the ANN results.
+Calculate precipitation periods from the predicted results.
+
+\*Only required if the supplied thresholds (`data/thresholds`) are not to be
+used.
 
 ### alcf_filter
 
