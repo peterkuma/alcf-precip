@@ -28,9 +28,10 @@ Ocean between 2010 and 2021, but users of this code can use any other dataset
 of lidar and synoptic observations for the training.
 
 Due to their large size, the data will be provided separately from this
-repository [TODO]. If you want to use this code, it is recommended to start
-with these data, and after running it successfully, use the data that you are
-interested in classifying. You can either use an ANN trained on the RV
+repository [TODO]. The `data` directory mentioned below refers to the
+accompanying data repository.  If you want to use this code, it is recommended
+to start with these data, and after running it successfully, use the data that
+you are interested in classifying. You can either use an ANN trained on the RV
 *Polarstern* voyages (`data/ann/all.h5`) to classify samples in your dataset of
 interest or train your own ANN if you have colocated lidar and synoptic
 observations available.  The supplied ANN may not be suitable for lidars other
