@@ -6,18 +6,36 @@ This repository contains code for detecting precipitation in lidar data using
 an artificial neural network for use with the [Automatic Lidar and Ceilometer
 Framework](https://alcf.peterkuma.net).
 
-The end product of running the code is and ALCF include filter, which can be
-used with the "alcf stats" and "alcf auto lidar" commands to filter out
+The end product of running the code is an ALCF include filter, which can be
+used with the `alcf stats` and `alcf auto lidar` commands to filter out
 precipitation when calculating statistics. This is useful in order to get an
-unbiased comparison with a model. ALCF currently does not support simulating
+unbiased comparison with an atmospheric model (climate model, numerical weather
+prediction model, or reanalysis). ALCF currently does not support simulating
 precipitation. Therefore, excluding precipitation from observations can be
-important for the comparison. Otherwise, precipitation in observations can be
-recognized as cloud, and contribute to the cloud occurrence statistics.
+important for the comparison, depending on the overall prevalance of
+precipitation. Otherwise, precipitation in observations is often classified as
+clouds, and contributes to the cloud occurrence statistics, while this
+contribution is not present in the model statistics.
 
 Description of this code can be found in the paper [Ship and ground-based lidar
 and radiosonde evaluation of Southern Ocean clouds in the storm-resolving
 general circulation model ICON and the ERA5 and MERRA-2
 reanalyses](https://doi.org/10.5281/zenodo.14071808), Section 2.9.
+
+The traning dataset comes from the Vaisala CL51 ceilometer and synoptic
+(human-performed) observations the RV *Polarstern* voyages in the Southern
+Ocean between 2010 and 2021, but users of this code can use any other dataset
+of lidar and synoptic observations for the training.
+
+Due to large size, the data will be provided separately from this repository
+[TODO]. If you want to use this code, it is recommeded to start with these
+data, and after running it successfully, use the data that you are interested
+in classifying. You can either use an ANN trained on the RV *Polarstern*
+voyages (`data/ann/all.h5`) to classify samples in your dataset of interest, or
+train your own ANN if you have colocated lidar and synoptic observations
+available.  The supplied ANN may not be suitable for lidars other than the CL51
+or geographical locations other than the Southern Ocean. Ideally, this should
+be verified on some test data.
 
 ## Requirements
 
@@ -75,7 +93,8 @@ name. "Requires" lists commands which have to be run before running the current
 command.
 
 After running the commands, the resulting ALCF filters for each data source
-are stored in `data/alcf_filter`.
+are stored in `data/alcf_filter`. These can be used with the `alcf stats`
+and `alcf auto lidar` commands for filtering.
 
 ### all
 
