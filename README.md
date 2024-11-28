@@ -98,7 +98,9 @@ and `alcf auto lidar` commands for filtering.
 
 ### all
 
-Run all of the commands below in a sequence.
+Run all of the commands below in a sequence. Running the whole sequence can be
+time consuming. It may be advisable to run the commands individually instead,
+especially if there are any errors.
 
 ### weather
 
