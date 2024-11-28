@@ -27,15 +27,15 @@ The training dataset comes from the Vaisala CL51 ceilometer and synoptic
 Ocean between 2010 and 2021, but users of this code can use any other dataset
 of lidar and synoptic observations for the training.
 
-Due to large size, the data will be provided separately from this repository
-[TODO]. If you want to use this code, it is recommended to start with these
-data, and after running it successfully, use the data that you are interested
-in classifying. You can either use an ANN trained on the RV *Polarstern*
-voyages (`data/ann/all.h5`) to classify samples in your dataset of interest or
-train your own ANN if you have colocated lidar and synoptic observations
-available.  The supplied ANN may not be suitable for lidars other than the CL51
-or geographical locations other than the Southern Ocean. Ideally, this should
-be verified on some test data.
+Due to their large size, the data will be provided separately from this
+repository [TODO]. If you want to use this code, it is recommended to start
+with these data, and after running it successfully, use the data that you are
+interested in classifying. You can either use an ANN trained on the RV
+*Polarstern* voyages (`data/ann/all.h5`) to classify samples in your dataset of
+interest or train your own ANN if you have colocated lidar and synoptic
+observations available.  The supplied ANN may not be suitable for lidars other
+than the CL51 or geographical locations other than the Southern Ocean. Ideally,
+this should be verified on some test data.
 
 ## Requirements
 
@@ -98,7 +98,7 @@ and `alcf auto lidar` commands for filtering.
 
 ### all
 
-Run all of the commands below in a sequence. Running the whole sequence can be
+Run all the commands below in a sequence. Running the whole sequence can be
 time-consuming. It may be advisable to run the commands individually instead,
 especially if there are any errors.
 
