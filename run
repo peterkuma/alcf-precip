@@ -60,6 +60,7 @@ all)
 	./run plot_roc
 	./run precip_ann
 	./run alcf_filter
+	;;
 
 weather)
 	mkdir -p "$DATA/weather"
@@ -183,12 +184,13 @@ test_wo)
 
 pred)
 	mkdir -p "$DATA/pred"
+	in="$DATA/samples_pred"
 	parallel -t \
 		bin/ann apply \
 		"$DATA/ann/all.h5" \
-		"$DATA"/samples_pred/{}/lidar \
-		"$DATA"/pred/{}.nc \
-		:::: "$INPUT/sources"
+		"$in"/{/}/lidar \
+		"$DATA"/pred/{/}.nc \
+		::: "$in"/*
 	;;
 
 plot_roc)
