@@ -15,10 +15,10 @@ precipitation. Otherwise, precipitation in observations is often classified as
 clouds and contributes to the cloud occurrence statistics, while this
 contribution is not present in the model statistics.
 
-Description of this code can be found in the paper [Ship and ground-based lidar
-and radiosonde evaluation of Southern Ocean clouds in the storm-resolving
-general circulation model ICON and the ERA5 and MERRA-2
-reanalyses](https://doi.org/10.5281/zenodo.14071808), Section 2.9.
+Description of this code can be found in the paper [Ship-based lidar evaluation
+of Southern Ocean low clouds in the storm-resolving general circulation model
+ICON and the ERA5 and MERRA-2
+reanalyses](https://doi.org/10.1029/2024JD043145), Section 2.9.
 
 The training dataset comes from the Vaisala CL51 ceilometer and synoptic
 (human-performed) observations on the RV *Polarstern* voyages in the Southern
