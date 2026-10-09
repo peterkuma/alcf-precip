@@ -190,5 +190,4 @@ Create an ALCF filter from precipitation periods.
 
 ## License
 
-The code is Copyright © 2023–2024 Peter Kuma and licensed under the MIT license
-(see `LICENSE.md`).
+This code is available under the terms of the MIT license (see `LICENSE.md`).
